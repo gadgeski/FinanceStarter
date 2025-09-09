@@ -19,3 +19,7 @@ Pods/
 # もし Xcode が生成するログや検証ファイル
 *.moved-aside
 *.xccheckout
+
+# 除外したいファイル
+xcschememanagement.plist
+UserInterfaceState.xcuserstate
