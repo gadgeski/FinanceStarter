@@ -5,9 +5,11 @@
 //  Created by Dev Tech on 2025/09/08.
 //
 
+// Models/ExchangeRates.swift  // <-- [CHANGED]
 import Foundation
 
-struct ExchangeRates: Decodable {
+// [CHANGED] Decodable -> Codable（= Encodable + Decodable）
+struct ExchangeRates: Codable {                     // <-- [CHANGED]
     let base: String
     let date: String
     let rates: [String: Double]
