@@ -5,42 +5,44 @@
 //  Created by Dev Tech on 2025/09/08.
 //
 
+// Views/RateRowView.swift
 import SwiftUI
 
 struct RateRowView: View {
     let code: String
-    let value: Double
+    let value: Double?                 // <-- [CHANGED] Double -> Double?
     let base: String
     let isWatched: Bool
     let onToggleWatch: () -> Void
 
-    private var formatted: String {
+    private static let nf: NumberFormatter = {
         let f = NumberFormatter()
         f.numberStyle = .decimal
         f.maximumFractionDigits = 6
-        return f.string(from: NSNumber(value: value)) ?? "\(value)"
-    }
+        return f
+    }()
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(code)
-                    .font(.headline)
-                Text("1 \(base) → \(code)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        HStack(spacing: 12) {
+            Text(code).font(.headline).monospaced()
+            Text("/ \(base)").font(.subheadline).foregroundStyle(.secondary)
             Spacer()
-            Text(formatted)
-                .monospacedDigit()
+
+            // 値の表示：nil のときはプレースホルダ
+            if let v = value {                                                             // <-- [ADDED]
+                Text(Self.nf.string(from: NSNumber(value: v)) ?? "\(v)")
+                    .font(.body).monospacedDigit()
+            } else {
+                Text("--").font(.body).foregroundStyle(.secondary)                         // <-- [ADDED]
+            }
+
             Button(action: onToggleWatch) {
                 Image(systemName: isWatched ? "star.fill" : "star")
-                    .imageScale(.medium)
             }
             .buttonStyle(.borderless)
-            .accessibilityLabel(isWatched ? "ウォッチ解除" : "ウォッチ追加")
+            .accessibilityLabel(isWatched ? "ウォッチ解除" : "ウォッチする")
         }
-        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 }
 
