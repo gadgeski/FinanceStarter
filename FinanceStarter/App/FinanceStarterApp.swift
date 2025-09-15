@@ -31,7 +31,8 @@ struct FinanceStarterApp: App {
         WindowGroup {
             // 起動ビューが ContentView でも RootTabView でもOK。
             // どちらにも repository を渡す（下は RootTabView 起動例）。
-            RootTabView(repository: repository)                              // <-- [CHANGED]
+            RootTabView(repository: repository)
+                .environmentObject(RateSelectionStore())   // ← これが無いと ChartTabView で落ちます
             // ContentView(repository: repository) でも可（ContentView側が受け取れるなら）
         }
     }
