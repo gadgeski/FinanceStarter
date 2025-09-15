@@ -5,45 +5,72 @@
 //  Created by Dev Tech on 2025/09/11.
 //
 
-// Views/RootTabView.swift  // <-- [ADDED]
-// 動作確認/ConttentView → RootTabView
-// Views/RootTabView.swift
+// Views/RootTabView.swift（置き換え or 差分）
 import SwiftUI
 
 struct RootTabView: View {
-    let repository: ExchangeRateRepository        // <-- [CHANGED] 受け取り必須
+    enum Tab: Hashable { case home, alerts, chart, settings }
+
+    let repository: ExchangeRateRepository
+    @State private var selection: Tab = .home
 
     var body: some View {
-        TabView {
-            // ⛳️ 下記を修正
-            AlertsView(repository: repository) // <-- [CHANGED] 引数なし -> repository を渡す                .tabItem { Label("アラート", systemImage: "bell") }
+        TabView(selection: $selection) {
+            
+            // 1) ホーム（= ContentView を内包）
+            RatesHomeTab(repository: repository)
+                .tabItem { Label("ホーム", systemImage: "house") }
+                .tag(Tab.home)
+                .accessibilityLabel("ホーム")
 
-            NavigationStack {
-                // 必要に応じて ChartTabView(repository:) を使う構成でもOK
-                RateDetailView(base: "USD", symbol: "JPY", repository: repository) // <-- [CHANGED]
-            }
-            .tabItem { Label("チャート", systemImage: "chart.xyaxis.line") }
+            // 2) アラート
+            AlertsView(repository: repository)
+                .tabItem { Label("アラート", systemImage: "bell") }
+                .tag(Tab.alerts)
+                .accessibilityLabel("アラート")
 
+            // 3) チャート
+            ChartTabView(repository: repository)   // 既存がなければミニ版を後述
+                .tabItem { Label("チャート", systemImage: "chart.xyaxis.line") }
+                .tag(Tab.chart)
+                .accessibilityLabel("チャート")
+
+            // 4) 設定
             SettingsView()
                 .tabItem { Label("設定", systemImage: "gearshape") }
+                .tag(Tab.settings)
+                .accessibilityLabel("設定")
         }
+        // 子ビューからタブを切り替えるための Binding を環境に流す
+        .environment(\.tabSelection, $selection)  // 下の環境キーを追加
     }
 }
 
-// MARK: - Preview（ここでも repository を渡す！）
-#Preview {
-    struct MockRepo: ExchangeRateRepository {
-        func timeseries(base: String, symbol: String, start: Date, end: Date, useCache: Bool) async throws -> [RatePoint] {
-            let cal = Calendar(identifier: .gregorian)
-            var d = start; var i: Double = 0; var pts: [RatePoint] = []
-            while d <= end {
-                let v = 150 + 5 * sin(i/6) + Double.random(in: -0.5...0.5)
-                pts.append(RatePoint(date: d, value: v))
-                d = cal.date(byAdding: .day, value: 1, to: d) ?? d.addingTimeInterval(86_400)
-                i += 1
-            }
-            return pts
-        }
+
+// MARK: - 環境キー（子からタブ切替可能に）
+private struct TabSelectionKey: EnvironmentKey {
+    static let defaultValue: Binding<RootTabView.Tab>? = nil
+}
+extension EnvironmentValues {
+    var tabSelection: Binding<RootTabView.Tab>? {
+        get { self[TabSelectionKey.self] }
+        set { self[TabSelectionKey.self] = newValue }
     }
-    return RootTabView(repository: MockRepo())     // <-- [CHANGED] Preview でも注入
+}
+
+// MARK: - ホームタブのラッパ（ContentView + VM をここで保持）
+private struct RatesHomeTab: View {
+    let repository: ExchangeRateRepository
+    @StateObject private var vm: RatesViewModel
+
+    init(repository: ExchangeRateRepository) {
+        self.repository = repository
+        _vm = StateObject(wrappedValue: RatesViewModel(repository: repository))
+    }
+
+    var body: some View {
+        ContentView(repository: repository, viewModel: vm)
+            .accessibilityLabel("ホーム")
+            .accessibilityHint("為替レート一覧を表示します")
+    }
 }
