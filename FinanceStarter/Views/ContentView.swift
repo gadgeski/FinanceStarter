@@ -5,27 +5,47 @@
 //  Created by Dev Tech on 2025/09/08.
 //
 
-// Views/ContentView.swift  // <-- [CHANGED]
-// Views/ContentView.swift  // <-- [UPDATED]
+// Views/ContentView.swift
 import SwiftUI
 
 struct ContentView: View {
     let repository: ExchangeRateRepository
     @StateObject var viewModel: RatesViewModel
+    @Environment(\.tabSelection) private var tabSelection     // RootTabView からのタブ選択 Binding  // <-- [CHANGED]
 
-    init(repository: ExchangeRateRepository, viewModel: RatesViewModel) {
+    // ▼ フォールバック用フラグ：環境が無い場合は Navigation で代替遷移                       // <-- [ADDED]
+    @State private var pushToAlerts = false                   // <-- [ADDED]
+    @State private var pushToChart = false                    // <-- [ADDED]
+    @State private var pushToSettings = false                 // <-- [ADDED]
+
+    init(repository: ExchangeRateRepository,
+         viewModel: RatesViewModel) {
         self.repository = repository
         _viewModel = StateObject(wrappedValue: viewModel)
     }
 
-    var body: some View {                                    // <-- [CHANGED] （重い式分割の前提）
+    // ▼ タブ移動の共通口。環境があればタブ切替、無ければフォールバックで PUSH                // <-- [ADDED]
+    private func go(_ tab: RootTabView.Tab) {                 // <-- [ADDED]
+        if let t = tabSelection {
+            t.wrappedValue = tab                              // RootTabView 配下：タブ切替         // <-- [ADDED]
+        } else {
+            switch tab {                                      // 単体/Preview：代替で PUSH           // <-- [ADDED]
+            case .alerts:   pushToAlerts   = true
+            case .chart:    pushToChart    = true
+            case .settings: pushToSettings = true
+            default: break
+            }
+        }
+    }
+
+    var body: some View {
         NavigationStack {
             Group {
                 switch viewModel.state {
                 case .idle, .loading:
                     ProgressView("読み込み中…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .task { await viewModel.refresh() }  // 初回ロード                       // <-- [ADDED]
+                        .task { await viewModel.refresh() }     // 初回ロード                         // <-- [CHANGED]
 
                 case .failed(let message):
                     VStack(spacing: 12) {
@@ -45,17 +65,36 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("為替レート (\(viewModel.base))")
-            .toolbar { toolbarView }                         // <-- [CHANGED] Toolbar を分割
+            .toolbar { toolbarView }                           // ツールバーは分割して記述              // <-- [CHANGED]
             .searchable(text: $viewModel.searchText, prompt: "通貨コードで検索（例: JPY）")
             .refreshable { await viewModel.refresh() }
+
+            // ▼ フォールバックの遷移先（Root 配下でなくても確実に動く）                       // <-- [ADDED]
+            .navigationDestination(isPresented: $pushToAlerts)   { AlertsView(repository: repository) } // <-- [ADDED]
+            .navigationDestination(isPresented: $pushToChart)    { ChartTabView(repository: repository) } // <-- [ADDED]
+            .navigationDestination(isPresented: $pushToSettings) { SettingsView() }                      // <-- [ADDED]
         }
     }
 
-    // Toolbar（基準通貨切替）を分割してコンパイラの負担を軽くする
+    // MARK: - Toolbar（基準通貨＋タブ移動メニュー）
     @ToolbarContentBuilder
-    private var toolbarView: some ToolbarContent {           // <-- [ADDED]
+    private var toolbarView: some ToolbarContent {
+        // 先頭：他タブへ移動できるメニュー（アクセシブルな導線）                        // <-- [CHANGED]
+        ToolbarItem(placement: .topBarLeading) {
+            Menu {
+                Button("アラートへ")  { go(.alerts) }          // ← フォールバック対応                // <-- [CHANGED]
+                Button("チャートへ")  { go(.chart)  }          // ← フォールバック対応                // <-- [CHANGED]
+                Button("設定へ")      { go(.settings) }        // ← フォールバック対応                // <-- [CHANGED]
+            } label: {
+                Label("移動", systemImage: "list.bullet")
+            }
+            .accessibilityLabel("移動")                                          // <-- [CHANGED]
+            .accessibilityHint("他のタブに移動します")                           // <-- [CHANGED]
+        }
+
+        // 右側：基準通貨切替メニュー（型推論コストを下げるため Binding を分割）             // <-- [CHANGED]
         ToolbarItem(placement: .topBarTrailing) {
-            let baseBinding = Binding<String>(                // <-- [ADDED] Binding を独立
+            let baseBinding = Binding<String>(
                 get: { viewModel.base },
                 set: { viewModel.setBase($0) }
             )
@@ -69,6 +108,7 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - List
     @ViewBuilder
     private var listView: some View {
         List {
@@ -84,15 +124,17 @@ struct ContentView: View {
                         ) {
                             RateRowView(
                                 code: item.code,
-                                value: item.value,
+                                value: item.value,                     // RateRowView は Double? 受け取りに対応済み
                                 base: viewModel.base,
                                 isWatched: true,
                                 onToggleWatch: { viewModel.toggleWatch(code: item.code) }
                             )
                         }
+                        .accessibilityHint("\(item.code) の詳細チャートを開きます")
                     }
                 }
             }
+
             Section("すべて") {
                 ForEach(viewModel.otherRates, id: \.code) { item in
                     NavigationLink(
@@ -110,10 +152,12 @@ struct ContentView: View {
                             onToggleWatch: { viewModel.toggleWatch(code: item.code) }
                         )
                     }
+                    .accessibilityHint("\(item.code) の詳細チャートを開きます")
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .accessibilitySortPriority(1)                                               // セクション見出しを先に読ませる
     }
 }
 
@@ -133,11 +177,24 @@ struct ContentView_Previews: PreviewProvider {
                 return pts
             }
         }
+
         return Group {
+            // Preview：環境を注入しない → フォールバックで PUSH が効く                 // <-- [ADDED]
+            // フォールバックで PUSH（環境がなくても動くが、ChartTabView が @EnvironmentObject を要求するので注入要）
             ContentView(repository: MockRepo(), viewModel: .preview())
-                .previewDisplayName("Loaded")
+                .environmentObject(RateSelectionStore())  // ← 追加
+                .previewDisplayName("Loaded (Fallback PUSH)")
+
+            // Preview：環境を注入する → タブ切替が効く                                  // <-- [ADDED]
+            // タブ切替パス（tabSelection も入れて検証）
+            ContentView(repository: MockRepo(), viewModel: .preview())
+                .environment(\.tabSelection, .constant(.home))
+                .environmentObject(RateSelectionStore())             // ← 追加
+                .previewDisplayName("Loaded (Tab Switch)")
+
             ContentView(repository: MockRepo(), viewModel: .previewLoading())
                 .previewDisplayName("Loading")
+
             ContentView(repository: MockRepo(), viewModel: .previewError())
                 .previewDisplayName("Error")
         }
